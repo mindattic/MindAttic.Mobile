@@ -16,7 +16,7 @@ var app = builder.Build();
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
 
-app.MapGet("/", () => Results.Content(BuildHtml(title, port), "text/html"));
+app.MapGet("/", () => Results.Content(BuildHtml(title), "text/html"));
 
 app.MapGet("/ws", async (HttpContext ctx) =>
 {
@@ -157,7 +157,7 @@ static async Task WsSend(WebSocket ws, string text)
 
 // ── embedded HTML ───────────────────────────────────────────────────────────
 
-static string BuildHtml(string title, string port) => $$"""
+static string BuildHtml(string title) => $$"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -204,7 +204,7 @@ fit.fit();
 
 const params = new URLSearchParams(location.search);
 const token  = params.get('token') ?? '';
-const wsUrl  = `ws://${location.hostname}:${port}/ws${token ? '?token=' + encodeURIComponent(token) : ''}`;
+const wsUrl  = `ws://${location.hostname}:${location.port}/ws${token ? '?token=' + encodeURIComponent(token) : ''}`;
 const ws = new WebSocket(wsUrl);
 ws.onopen    = () => term.focus();
 ws.onmessage = e  => term.write(e.data);
