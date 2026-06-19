@@ -29,7 +29,7 @@ app.MapGet("/ws", async (HttpContext ctx) =>
     }
 
     var ws = await ctx.WebSockets.AcceptWebSocketAsync();
-    await RunSession(ws, workDir, command, title);
+    await RunSession(ws, workDir, title);
 });
 
 Console.WriteLine($"MindAttic.Terminal → http://0.0.0.0:{port}  (workDir={workDir})");
@@ -37,11 +37,11 @@ app.Run();
 
 // ── session ────────────────────────────────────────────────────────────────
 
-static async Task RunSession(WebSocket ws, string workDir, string command, string title)
+static async Task RunSession(WebSocket ws, string workDir, string title)
 {
     await WsSend(ws,
-        $"\x1b[35m{title} Terminal\x1b[0m  " +
-        $"\x1b[2mtype a flag, e.g.\x1b[0m  \x1b[36m--ask \"hello\"\x1b[0m\r\n$ ");
+        $"\x1b[35m{title} Terminal\x1b[0m  \x1b[2m{workDir}\x1b[0m\r\n" +
+        $"\x1b[2mtype any command, e.g.\x1b[0m  \x1b[36mss --list-strands\x1b[0m\r\n$ ");
 
     var buf  = new StringBuilder();
     var recv = new byte[4096];
@@ -74,7 +74,7 @@ static async Task RunSession(WebSocket ws, string workDir, string command, strin
                     await WsSend(ws, "\r\n");
                     if (line.Length > 0)
                     {
-                        running = await RunCommand(ws, workDir, command, line);
+                        running = await RunCommand(ws, workDir, line);
                         running = null;
                     }
                     await WsSend(ws, "$ ");
@@ -99,12 +99,12 @@ static async Task RunSession(WebSocket ws, string workDir, string command, strin
     }
 }
 
-static async Task<Process?> RunCommand(WebSocket ws, string workDir, string command, string userArgs)
+static async Task<Process?> RunCommand(WebSocket ws, string workDir, string line)
 {
     var psi = new ProcessStartInfo
     {
         FileName               = "cmd.exe",
-        Arguments              = $"/c {command} {userArgs}",
+        Arguments              = $"/c {line}",
         WorkingDirectory       = workDir,
         RedirectStandardOutput = true,
         RedirectStandardError  = true,
