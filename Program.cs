@@ -85,8 +85,9 @@ const params = new URLSearchParams(location.search);
 const token  = params.get('token') ?? '';
 const wsUrl  = `ws://${location.hostname}:${location.port}/ws${token ? '?token=' + encodeURIComponent(token) : ''}`;
 const ws = new WebSocket(wsUrl);
+ws.binaryType = 'arraybuffer';
 ws.onopen    = () => term.focus();
-ws.onmessage = e  => term.write(e.data);
+ws.onmessage = e  => term.write(new Uint8Array(e.data));
 ws.onclose   = ()  => term.write('\r\n\x1b[31m[disconnected]\x1b[0m\r\n');
 ws.onerror   = ()  => term.write('\r\n\x1b[31m[connection error]\x1b[0m\r\n');
 term.onData(data => { if (ws.readyState === 1) ws.send(data); });
@@ -106,79 +107,120 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
 
     const string Model = "claude-sonnet-4-6";
 
-    static readonly string SystemPrompt = $"""
-        You are an AI assistant embedded in a web terminal on an iPhone, controlling the
-        StreetSamurai book-authoring CLI on a Windows PC. The user types natural language;
-        you figure out what to do and run the right commands.
+    static string RandomGreeting()
+    {
+        // 16 * 32 * 20 = 10,240 distinct combinations
+        string[] opens = [
+            "Blade's edge. Terminal live",
+            "Night protocol active",
+            "Ink and iron",
+            "Chrome and shadow",
+            "Steel city, open channel",
+            "Neon grid online",
+            "Dark streets, bright blade",
+            "Cold city, hot terminal",
+            "Circuit complete",
+            "Ghost in the wire",
+            "Samurai code loaded",
+            "Signal locked",
+            "Hardline established",
+            "Midnight uplink",
+            "Black market channel open",
+            "Street feed live",
+        ];
+        string[] middles = [
+            ", warrior",         ", ronin",            ", ghost",            ", exile",
+            ", street poet",     ", operator",         ", cipher",           ", blade runner",
+            ", night walker",    ", street samurai",   ", chrome fist",      ", neon shadow",
+            ", urban ghost",     ", iron hand",        ", ink slinger",      ", road sage",
+            ", knife edge",      ", dark matter",      ", shadow broker",    ", wire dancer",
+            ", data phantom",    ", chrome monk",      ", signal wraith",    ", city wolf",
+            ", black market sage", ", arc welder",     ", silicon ghost",    ", night blade",
+            ", void walker",     ", code crow",        ", steel nomad",      ", storm crow",
+        ];
+        string[] closes = [
+            ". What do you need?",
+            ". Speak.",
+            ". Begin.",
+            ". The city waits.",
+            ". Write something.",
+            ". The night is yours.",
+            ". Tell me.",
+            ". Say the word.",
+            ". The feed is open.",
+            ". Clock is running.",
+            ". I'm listening.",
+            ". Make your move.",
+            ". Channel's yours.",
+            ". What's the play?",
+            ". Run the line.",
+            ". Go.",
+            ". Type your move.",
+            ". Command received — what next?",
+            ". Street's quiet. Not for long.",
+            ". The wire never sleeps.",
+        ];
+        return opens[Random.Shared.Next(opens.Length)]
+            + middles[Random.Shared.Next(middles.Length)]
+            + closes[Random.Shared.Next(closes.Length)];
+    }
 
-        Working directory: D:\Projects\MindAttic\StreetSamurai
-        Commands are invoked as: ss <flags>  (e.g. "ss --list-strands")
+    // Built once per session; reads StreetSamurai source to stay in sync with new commands.
+    string BuildSystemPrompt()
+    {
+        var flags = ReadSsFlags();
+        var flagBlock = flags.Count > 0
+            ? string.Join("\r\n        ", flags)
+            : "(could not read StreetSamurai source — run ss.cmd --help for the full list)";
+        var ssExe = Path.Combine(workDir, "ss.cmd");
+        return $"""
+            You are an AI assistant embedded in a web terminal on an iPhone, controlling the
+            StreetSamurai book-authoring CLI on a Windows PC. The user types natural language;
+            you figure out what to do and run the right commands.
 
-        AVAILABLE ss FLAGS
-        --ask "Q"           RAG query against the canon corpus
-        --list-strands      List every strand (table or JSON)
-        --write-strand      Generate a new strand (--seed "â€¦" optional)
-        --bible-strand      (Re)generate the strand bible for an existing strand
-        --edit-strand       Review-driven auto-editor (proposals only)
-        --rebeat-strand     LLM re-segmentation of a strand's beats
-        --check-canon       Sweep strand prose against canon for contradictions
-        --reflow-strand     Bounded copy-edit (spacing, dialogue tags, punctuation)
-        --review-strand     Legion persona reader reviews
-        --repair            Dossier-driven story repair pass
-        --narrate-strand    Re-record a strand's beats via TTS
-        --publish-strand    Stitch beats â†’ MP3, copy to Downloads
-        --publish-docx      Render strand to KDP-ready .docx
-        --publish-md        Render strand to Markdown
-        --publish-pdf       Render strand to PDF
-        --publish-audiobook Render entire strand as one audiobook MP3
-        --import-md         Re-import an edited publish-md back into DB
-        --duplicate-strand  Deep-clone a strand and its sub-tree
-        --split-collection  Split a monolithic strand into a Collection
-        --reparent-strand   Move a strand into/out of a collection
-        --mark-canon        Mark a strand as canon-trust level
-        --burst-beats       Split oversized beats into paragraph-sized pieces
-        --timeline          Extract a time/duration timeline from a strand
-        --world-state       Show world state at a given beat
-        --prose-check       Prose quality checks on a strand
-        --print-voice       Print the voice context block
-        --harvest-voice     Distill voice rules from high-scoring strands
-        --book              Book operations: list / new / show / chapters / absorb / review / apply / export / delete
-        --write-story       LLM story generation, saved as a Chapter
-        --refine-story      Analyze a completed story, write refinement notes
-        --continuity        Continuity store: migrate / stats / contradictions / resolve / entity
-        --findings          Findings inbox: list / show / apply / dismiss / scan
-        --interpret         Prose â†’ entities + edges (LLM-driven)
-        --add-character     Insert a Character from JSON
-        --add-place         Insert/update a Place/District from JSON
-        --add-doc           Insert a worldbuilding Document
-        --add-news          Insert a News article from JSON
-        --family            Seed/propose family ties between characters
-        --genetics          Propagate genetic_ancestry through the family graph
-        --image-prompts     Rewrite image prompt visual descriptors
-        --coverage          Per-entity-type canon reachability matrix
-        --rebuild-readmodel Rebuild the character read-model projection
-        --entity-tree       Render an entity's relationship tree
-        --rebuild-graph     Rebuild world_graph.json from source data
-        --reembed           Rebuild the entity-embedding cache
-        --legion            Query the Legion LLM voting panel directly
-        --canon-retrieve    Show what the universal canon reach pulls for a query
-        --export            Dump canon JSON to Downloads
-        --sql-export        Dump the entire DB to a re-runnable .sql script
-        --migrate-sql       Apply EF migrations and import JSON entities
-        --schema            Per-table schema operations (snapshot + rebuild)
-        --seed              Apply canonical SQL seeds
-        --import-strand     Import a hand-authored .strand file
-        --audit-drift       Report Character column vs. EntityStateEvents drift
-        --audit-denorm      Report flat-vs-bridge drift for a denormalized column
+            Working directory: {workDir}
+            IMPORTANT: The CLI is a .cmd batch file. ALWAYS invoke it as the full path:
+                {ssExe} <flags>
+            Never use just "ss" — it is not on PATH and will fail every time.
+            Example: {ssExe} --list-strands
 
-        RULES
-        â€¢ Always tell the user what you're about to do before calling run_command.
-        â€¢ After getting output, give a concise summary â€” the iPhone screen is small.
-        â€¢ If the user's intent is ambiguous, ask ONE clarifying question before running anything.
-        â€¢ If a command produces an error, explain what went wrong and suggest a fix.
-        â€¢ You can run multiple commands in sequence to accomplish a goal.
-        â€¢ Format responses for a narrow monospace terminal â€” short lines, no markdown headers.
-        """;
+            AVAILABLE ss FLAGS (auto-read from source; refreshed each session)
+            {flagBlock}
+
+            RULES
+            • Always tell the user what you are about to do before calling run_command.
+            • After getting output, give a concise summary — the iPhone screen is small.
+            • If the user's intent is ambiguous, ask ONE clarifying question before running anything.
+            • If a command produces an error, explain what went wrong and suggest a fix.
+            • You can run multiple commands in sequence to accomplish a goal.
+            • Format responses for a narrow monospace terminal — short lines, no markdown headers.
+            """;
+    }
+
+    // Scan StreetSamurai Program.cs for every args.Contains("--flag") call.
+    List<string> ReadSsFlags()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(workDir, "v3", "StreetSamurai.Blazor", "Program.cs"),
+            Path.Combine(workDir, "Program.cs"),
+        };
+        var rx = new System.Text.RegularExpressions.Regex(@"args\.Contains\(""""(--[a-z][a-z0-9-]*)""""\)");
+        foreach (var path in candidates)
+        {
+            if (!File.Exists(path)) continue;
+            var seen  = new HashSet<string>();
+            var flags = new List<string>();
+            foreach (var line in File.ReadLines(path))
+            {
+                var m = rx.Match(line);
+                if (m.Success && seen.Add(m.Groups[1].Value))
+                    flags.Add(m.Groups[1].Value);
+            }
+            if (flags.Count > 0) return flags;
+        }
+        return [];
+    }
 
     // Conversation history, grows across the session.
     readonly List<JsonElement> _messages = [];
@@ -187,7 +229,7 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
     {
         var banner = string.IsNullOrEmpty(apiKey)
             ? "\x1b[31m[ERROR] ANTHROPIC_API_KEY not set in run.bat â€” AI unavailable.\x1b[0m\r\n"
-            : $"\x1b[35m{title}\x1b[0m  talk to me in plain English\r\n\r\n";
+            : $"\x1b[35m{title}\x1b[0m  {RandomGreeting()}\r\n\r\n";
         await Send(banner + "> ");
 
         var buf  = new StringBuilder();
@@ -300,7 +342,7 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
         {
             model      = Model,
             max_tokens = 8192,
-            system     = SystemPrompt,
+            system     = BuildSystemPrompt(),
             messages   = _messages,
             tools      = Tools,
             stream     = true
@@ -490,7 +532,8 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
     {
         if (ws.State != WebSocketState.Open) return;
         var bytes = Encoding.UTF8.GetBytes(text);
-        try { await ws.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None); }
+        // Binary frames: xterm.js receives Uint8Array and decodes UTF-8 correctly.
+        try { await ws.SendAsync(bytes, WebSocketMessageType.Binary, true, CancellationToken.None); }
         catch { }
     }
 }
