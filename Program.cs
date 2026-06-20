@@ -205,7 +205,7 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
             Path.Combine(workDir, "v3", "StreetSamurai.Blazor", "Program.cs"),
             Path.Combine(workDir, "Program.cs"),
         };
-        var rx = new System.Text.RegularExpressions.Regex(@"args\.Contains\(""""(--[a-z][a-z0-9-]*)""""\)");
+        var rx = new System.Text.RegularExpressions.Regex(@"args\.Contains\(""(--[a-z][a-z0-9-]*)""\)");
         foreach (var path in candidates)
         {
             if (!File.Exists(path)) continue;
@@ -368,12 +368,16 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
 
         if (!resp.IsSuccessStatusCode)
         {
-            var err = await resp.Content.ReadAsStringAsync();
-            await Send($"\x1b[31m[API {(int)resp.StatusCode}: {err}]\x1b[0m\r\n");
+            using (resp)
+            {
+                var err = await resp.Content.ReadAsStringAsync();
+                await Send($"\x1b[31m[API {(int)resp.StatusCode}: {err}]\x1b[0m\r\n");
+            }
             return ("end_turn", []);
         }
 
         // Parse SSE stream.
+        using var _ = resp;
         await using var stream = await resp.Content.ReadAsStreamAsync();
         using var reader = new StreamReader(stream);
 
@@ -494,13 +498,24 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
         };
 
         var capture = new StringBuilder();
-        using var proc = Process.Start(psi)!;
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException($"Failed to start cmd.exe for: {command}");
 
-        using var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var t1 = PipeAndCapture(proc.StandardOutput, capture, cts.Token);
         var t2 = PipeAndCapture(proc.StandardError,  capture, cts.Token);
-        await proc.WaitForExitAsync();
-        cts.Cancel();
+        try
+        {
+            await proc.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+        }
+        finally
+        {
+            cts.Cancel();
+        }
         await Task.WhenAll(t1, t2);
 
         if (proc.ExitCode != 0)
