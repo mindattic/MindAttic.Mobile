@@ -6,9 +6,9 @@ using MindAttic.Vault.Credentials;
 
 // â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var workDir = Environment.GetEnvironmentVariable("TERMINAL_WORKDIR")
-    ?? @"D:\Projects\MindAttic\StreetSamurai";
+    ?? @"D:\Projects\MindAttic\Prose";
 var wsToken = Environment.GetEnvironmentVariable("TERMINAL_TOKEN");
-var title   = Environment.GetEnvironmentVariable("TERMINAL_TITLE") ?? "StreetSamurai";
+var title   = Environment.GetEnvironmentVariable("TERMINAL_TITLE") ?? "Prose";
 var port    = Environment.GetEnvironmentVariable("TERMINAL_PORT")  ?? "8765";
 var apiKey  = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
     ?? LlmCredentialStore.Default.GetKey("claude")
@@ -165,17 +165,17 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
             + closes[Random.Shared.Next(closes.Length)];
     }
 
-    // Built once per session; reads StreetSamurai source to stay in sync with new commands.
+    // Built once per session; reads Prose source to stay in sync with new commands.
     string BuildSystemPrompt()
     {
         var flags = ReadSsFlags();
         var flagBlock = flags.Count > 0
             ? string.Join("\r\n        ", flags)
-            : "(could not read StreetSamurai source — run ss.cmd --help for the full list)";
+            : "(could not read Prose source — run ss.cmd --help for the full list)";
         var ssExe = Path.Combine(workDir, "ss.cmd");
         return $"""
             You are an AI assistant embedded in a web terminal on an iPhone, controlling the
-            StreetSamurai book-authoring CLI on a Windows PC. The user types natural language;
+            Prose book-authoring CLI on a Windows PC. The user types natural language;
             you figure out what to do and run the right commands.
 
             Working directory: {workDir}
@@ -197,12 +197,12 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
             """;
     }
 
-    // Scan StreetSamurai Program.cs for every args.Contains("--flag") call.
+    // Scan Prose Program.cs for every args.Contains("--flag") call.
     List<string> ReadSsFlags()
     {
         var candidates = new[]
         {
-            Path.Combine(workDir, "v3", "StreetSamurai.Blazor", "Program.cs"),
+            Path.Combine(workDir, "v3", "Prose.Cli", "Program.cs"),
             Path.Combine(workDir, "Program.cs"),
         };
         var rx = new System.Text.RegularExpressions.Regex(@"args\.Contains\(""(--[a-z][a-z0-9-]*)""\)");
@@ -319,7 +319,7 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
         new
         {
             name = "run_command",
-            description = "Run a shell command in the StreetSamurai directory and return its output.",
+            description = "Run a shell command in the Prose directory and return its output.",
             input_schema = new
             {
                 type = "object",
