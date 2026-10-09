@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="..\MindAttic.Vault\MindAttic.Vault\MindAttic.Vault.csproj" />
+    <ProjectReference Include="..\MindAttic.Log\MindAttic.Log\MindAttic.Log.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

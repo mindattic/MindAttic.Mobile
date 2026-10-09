@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using MindAttic.Log;
+using MindAttic.Log.Extensions;
 using MindAttic.Vault.Credentials;
 
 // â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -17,6 +19,16 @@ var apiKey  = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
 // â”€â”€ Web app â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+
+// No database of its own — the rolled-file tier (see MindAttic.Log's docs/MIGRATION.md).
+builder.Services.AddMindAtticLog(o =>
+{
+    o.Application = "MindAttic.Mobile";
+    o.Destination = LogDestination.Sqlite;
+    o.FileDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MindAttic", "Mobile", "logs");
+});
+
 var app = builder.Build();
 
 app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(30) });
@@ -26,12 +38,12 @@ app.MapGet("/ws", async (HttpContext ctx) =>
     if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
     if (wsToken is not null && ctx.Request.Query["token"] != wsToken) { ctx.Response.StatusCode = 403; return; }
     var ws = await ctx.WebSockets.AcceptWebSocketAsync();
-    await new TerminalSession(ws, workDir, title, apiKey).RunAsync();
+    await new TerminalSession(ws, workDir, title, apiKey, app.Logger).RunAsync();
 });
 
-Console.WriteLine($"MindAttic.Terminal â†’ http://0.0.0.0:{port}  workDir={workDir}");
+app.Logger.LogInformation("MindAttic.Terminal listening on http://0.0.0.0:{Port}, workDir={WorkDir}", port, workDir);
 if (string.IsNullOrEmpty(apiKey))
-    Console.WriteLine("WARNING: ANTHROPIC_API_KEY not set â€” AI responses will fail.");
+    app.Logger.LogWarning("ANTHROPIC_API_KEY not set — AI responses will fail.");
 app.Run();
 
 // â”€â”€ Embedded HTML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -101,7 +113,7 @@ window.visualViewport?.addEventListener('resize', () => fit.fit());
 
 // â”€â”€ Session â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-sealed class TerminalSession(WebSocket ws, string workDir, string title, string apiKey)
+sealed class TerminalSession(WebSocket ws, string workDir, string title, string apiKey, ILogger logger)
 {
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(10) };
 
@@ -362,6 +374,7 @@ sealed class TerminalSession(WebSocket ws, string workDir, string title, string 
         }
         catch (Exception ex)
         {
+            logger.LogError(ex, "Claude API call failed");
             await Send($"\x1b[31m[API error: {ex.Message}]\x1b[0m\r\n");
             return ("end_turn", []);
         }
